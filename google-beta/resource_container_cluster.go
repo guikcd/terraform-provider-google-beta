@@ -282,6 +282,22 @@ func resourceContainerCluster() *schema.Resource {
 								},
 							},
 						},
+						"autoprovisioning_node_pool_defaults": {
+							Type:     schema.TypeList,
+							Optional: true,
+							Elem: &schema.Resource{
+								Schema: map[string]*schema.Schema{
+									"oauth_scopes": {
+										Type:     schema.TypeString,
+										Required: true,
+									},
+									"service_account": {
+										Type:     schema.TypeString,
+										Optional: true,
+									}
+								},
+							},
+						},
 					},
 				},
 			},
@@ -2169,9 +2185,19 @@ func expandClusterAutoscaling(configured interface{}, d *schema.ResourceData) *c
 			}
 		}
 	}
+	var autoprovisioningNodePoolDefaults *containerBeta.AutoprovisioningNodePoolDefaults
+	if node_pools, ok := config["autoprovisioning_node_pool_defaults"]; ok {
+		autoprovisioningNodePoolDefaults = make(*containerBeta.AutoprovisioningNodePoolDefaults, 0)
+		autoprovisioningNodePoolDefaults = &containerBeta.AutoprovisioningNodePoolDefaults{
+			OauthScopes: []node_pools["oauth_scopes"].(string),
+			// Here we're relying on *not* setting ForceSendFields for 0-values.
+			ServiceAccount: node_pools["service_account"].(string)
+		}
+	}
 	return &containerBeta.ClusterAutoscaling{
 		EnableNodeAutoprovisioning: config["enabled"].(bool),
 		ResourceLimits:             resourceLimits,
+		AutoprovisioningNodePoolDefaults: autoprovisioningNodePoolDefaults
 	}
 }
 
@@ -2575,6 +2601,7 @@ func flattenClusterAutoscaling(a *containerBeta.ClusterAutoscaling) []map[string
 			})
 		}
 		r["resource_limits"] = resourceLimits
+		r["autoprovisioning_node_pool_defaults"] = 
 		r["enabled"] = true
 	}
 	return []map[string]interface{}{r}
