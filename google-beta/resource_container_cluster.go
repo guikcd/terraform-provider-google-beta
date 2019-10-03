@@ -284,17 +284,27 @@ func resourceContainerCluster() *schema.Resource {
 						},
 						"autoprovisioning_node_pool_defaults": {
 							Type:     schema.TypeList,
+							MaxItems: 1,
 							Optional: true,
 							Elem: &schema.Resource{
 								Schema: map[string]*schema.Schema{
 									"oauth_scopes": {
-										Type:     schema.TypeString,
-										Required: true,
+										Type:     schema.TypeSet,
+										Optional: true,
+										Computed: true,
+										ForceNew: true,
+										Elem: &schema.Schema{
+											Type: schema.TypeString,
+											StateFunc: func(v interface{}) string {
+												return canonicalizeServiceScope(v.(string))
+											},
+										},
+										Set: stringScopeHashcode,
 									},
 									"service_account": {
 										Type:     schema.TypeString,
 										Optional: true,
-									}
+									},
 								},
 							},
 						},
@@ -2185,19 +2195,28 @@ func expandClusterAutoscaling(configured interface{}, d *schema.ResourceData) *c
 			}
 		}
 	}
+
 	var autoprovisioningNodePoolDefaults *containerBeta.AutoprovisioningNodePoolDefaults
-	if node_pools, ok := config["autoprovisioning_node_pool_defaults"]; ok {
-		autoprovisioningNodePoolDefaults = make(*containerBeta.AutoprovisioningNodePoolDefaults, 0)
+	if node_pools, ok := config["autoprovisioning_node_pool_defaults"].([]interface{})[0]; ok {
+		if scopes, ok := node_pools["oauth_scopes"]; ok {
+			scopesSet := scopes.(*schema.Set)
+			scopes := make([]string, scopesSet.Len())
+			for i, scope := range scopesSet.List() {
+				scopes[i] = canonicalizeServiceScope(scope.(string))
+			}
+		}
+
 		autoprovisioningNodePoolDefaults = &containerBeta.AutoprovisioningNodePoolDefaults{
-			OauthScopes: []node_pools["oauth_scopes"].(string),
+			OauthScopes: scopes,
 			// Here we're relying on *not* setting ForceSendFields for 0-values.
-			ServiceAccount: node_pools["service_account"].(string)
+			ServiceAccount: node_pools["service_account"].(string),
 		}
 	}
+
 	return &containerBeta.ClusterAutoscaling{
-		EnableNodeAutoprovisioning: config["enabled"].(bool),
-		ResourceLimits:             resourceLimits,
-		AutoprovisioningNodePoolDefaults: autoprovisioningNodePoolDefaults
+		EnableNodeAutoprovisioning:       config["enabled"].(bool),
+		ResourceLimits:                   resourceLimits,
+		AutoprovisioningNodePoolDefaults: autoprovisioningNodePoolDefaults,
 	}
 }
 
@@ -2600,8 +2619,9 @@ func flattenClusterAutoscaling(a *containerBeta.ClusterAutoscaling) []map[string
 				"maximum":       rl.Maximum,
 			})
 		}
+		autoprovisioningNodePoolDefaults := make([]interface{}, 0, len(a.autoprovisioningNodePoolDefaults))
 		r["resource_limits"] = resourceLimits
-		r["autoprovisioning_node_pool_defaults"] = 
+		r["autoprovisioning_node_pool_defaults"] = autoprovisioningNodePoolDefaults
 		r["enabled"] = true
 	}
 	return []map[string]interface{}{r}
